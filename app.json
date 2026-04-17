@@ -21,10 +21,17 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.exodusengine"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-sqlite"],
+    "extra": {
+      "eas": {
+        "projectId": "dda9f118-3e0e-4d87-b2ae-93bb2d44d712"
+      }
     }
   }
 }
