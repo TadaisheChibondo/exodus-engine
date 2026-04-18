@@ -7,6 +7,18 @@ import {
 export default schemaMigrations({
   migrations: [
     {
+      toVersion: 6,
+      steps: [
+        addColumns({
+          table: "tasks",
+          columns: [
+            { name: "linked_ids", type: "string", isOptional: true },
+            { name: "linked_quest_ids", type: "string", isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
       toVersion: 5,
       steps: [
         addColumns({

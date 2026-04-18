@@ -1,9 +1,17 @@
 import React from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
 
 export default function Codex() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -102,6 +110,15 @@ export default function Codex() {
 
         <Text style={styles.footerText}>EXODUS ENGINE v2.0.0 // ONLINE</Text>
       </ScrollView>
+
+      <TouchableOpacity
+        style={styles.completedButton}
+        onPress={() => navigation.navigate("Completed" as never)}
+      >
+        <Text style={styles.completedButtonText}>
+          View Completed Tasks & Quests
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -169,5 +186,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 2,
+  },
+  completedButton: {
+    backgroundColor: "#00e5b0",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  completedButtonText: {
+    color: "#07090f",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 1,
   },
 });

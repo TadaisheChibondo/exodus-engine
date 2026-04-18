@@ -64,17 +64,21 @@ export default function Dashboard() {
 
     const taskXp: number = taskRecord.xp;
     const targetNeed: string = taskRecord.targetNeed || "restoration";
-    const linkedId: string = taskRecord.linkedId;
-    const linkedQuestId: string | undefined = taskRecord.linkedQuestId;
+    const linkedIds: string[] = taskRecord.linkedIds
+      ? taskRecord.linkedIds.split(",").filter((id: string) => id)
+      : [];
+    const linkedQuestIds: string[] = taskRecord.linkedQuestIds
+      ? taskRecord.linkedQuestIds.split(",").filter((id: string) => id)
+      : [];
     const needBoost = Math.max(1, Math.floor(taskXp / 10));
 
     console.log(
       "Completing task:",
       taskRecord.name,
-      "linked to quest:",
-      linkedQuestId,
-      "| raw linked_quest_id:",
-      taskRecord._raw.linked_quest_id,
+      "linked to quests:",
+      linkedQuestIds,
+      "| raw linked_quest_ids:",
+      taskRecord._raw.linked_quest_ids,
     );
 
     // ─── STEP 2: Single DB write transaction ──────────────────────────────────
@@ -84,13 +88,11 @@ export default function Dashboard() {
         task.status = "completed";
       });
 
-      // 2b. Quest Progression — only if this task was linked to a quest
-      if (linkedQuestId) {
-        console.log("Updating quest:", linkedQuestId);
+      // 2b. Quest Progression — for each linked quest
+      for (const questId of linkedQuestIds) {
+        console.log("Updating quest:", questId);
         try {
-          const questRecord: any = await database
-            .get("quests")
-            .find(linkedQuestId);
+          const questRecord: any = await database.get("quests").find(questId);
 
           // Read quest fields BEFORE updating (same principle)
           const questLinkedSkillId: string | undefined =
@@ -152,28 +154,30 @@ export default function Dashboard() {
         }
       }
 
-      // 2c. Standard Task → Skill Progression (independent of quest logic)
-      if (linkedId && linkedId !== "general") {
-        try {
-          const taskSkill: any = await database.get("skills").find(linkedId);
+      // 2c. Standard Task → Skill Progression (for each linked skill)
+      for (const skillId of linkedIds) {
+        if (skillId && skillId !== "general") {
+          try {
+            const taskSkill: any = await database.get("skills").find(skillId);
 
-          await taskSkill.update((skill: any) => {
-            let currentXp = skill.xp + taskXp;
-            let currentLevel = skill.level;
-            let currentMaxXp = skill.max_xp;
+            await taskSkill.update((skill: any) => {
+              let currentXp = skill.xp + taskXp;
+              let currentLevel = skill.level;
+              let currentMaxXp = skill.max_xp;
 
-            while (currentXp >= currentMaxXp) {
-              currentXp -= currentMaxXp;
-              currentLevel += 1;
-              currentMaxXp = Math.floor(currentMaxXp * 1.2);
-            }
+              while (currentXp >= currentMaxXp) {
+                currentXp -= currentMaxXp;
+                currentLevel += 1;
+                currentMaxXp = Math.floor(currentMaxXp * 1.2);
+              }
 
-            skill.xp = currentXp;
-            skill.level = currentLevel;
-            skill.max_xp = currentMaxXp;
-          });
-        } catch {
-          console.log("Task skill not found, skipping standard progression.");
+              skill.xp = currentXp;
+              skill.level = currentLevel;
+              skill.max_xp = currentMaxXp;
+            });
+          } catch {
+            console.log("Task skill not found, skipping standard progression.");
+          }
         }
       }
     });

@@ -15,6 +15,7 @@ import * as Notifications from "expo-notifications";
 
 // Screens
 import Codex from "./src/screens/Codex";
+import Completed from "./src/screens/Completed";
 import Dashboard from "./src/screens/Dashboard";
 import SkillTree from "./src/screens/SkillTree";
 import QuestLog from "./src/screens/QuestLog";
@@ -149,6 +150,19 @@ export default function App() {
               options={{
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="terminal-outline" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tab.Screen
+              name="Completed"
+              component={Completed}
+              options={{
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={size}
+                    color={color}
+                  />
                 ),
               }}
             />

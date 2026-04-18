@@ -39,12 +39,12 @@ export default function CreationMatrix({
   // TASK State
   const [taskName, setTaskName] = useState("");
   const [taskXp, setTaskXp] = useState("50");
-  const [taskSkillId, setTaskSkillId] = useState<string | null>(null);
+  const [taskSkillIds, setTaskSkillIds] = useState<string[]>([]);
   const [taskNeed, setTaskNeed] = useState<
     "restoration" | "vitality" | "connectivity" | "stimulation"
   >("vitality");
   const [taskUrgent, setTaskUrgent] = useState(false);
-  const [taskQuestId, setTaskQuestId] = useState<string | null>(null);
+  const [taskQuestIds, setTaskQuestIds] = useState<string[]>([]);
 
   // SKILL State
   const [skillName, setSkillName] = useState("");
@@ -65,17 +65,17 @@ export default function CreationMatrix({
 
   // Fetch active quests when the matrix opens so you can link tasks to them
   const loadMatrixData = async () => {
-    const allQuests = await database.get("quests").query().fetch() as Quest[];
+    const allQuests = (await database.get("quests").query().fetch()) as Quest[];
     const available = [];
 
     for (const quest of allQuests) {
       if (quest.status !== "active") continue;
 
       // Count linked tasks
-      const linkedTasks = await database
+      const linkedTasks = (await database
         .get("tasks")
         .query(Q.where("linked_quest_id", quest.id))
-        .fetch() as Task[];
+        .fetch()) as Task[];
 
       // Only include quests that can accept more tasks
       if (linkedTasks.length < quest.totalTasks) {
@@ -97,13 +97,13 @@ export default function CreationMatrix({
       if (activeTab === "task") {
         if (!taskName.trim()) return;
 
-        // Check if quest can accept more tasks
-        if (taskQuestId) {
-          const quest = await database.get("quests").find(taskQuestId) as Quest;
-          const linkedTasks = await database
+        // Check if quests can accept more tasks
+        for (const questId of taskQuestIds) {
+          const quest = (await database.get("quests").find(questId)) as Quest;
+          const linkedTasks = (await database
             .get("tasks")
-            .query(Q.where("linked_quest_id", taskQuestId))
-            .fetch() as Task[];
+            .query(Q.where("linked_quest_ids", Q.like(`%${questId}%`)))
+            .fetch()) as Task[];
 
           if (linkedTasks.length >= quest.totalTasks) {
             console.log("Quest already has maximum tasks linked");
@@ -111,30 +111,32 @@ export default function CreationMatrix({
           }
         }
 
-        const newTask = await database.get("tasks").create((task: any) => {
+        const newTask = (await database.get("tasks").create((task: any) => {
           task.name = taskName;
-          task.taskType = taskSkillId ? "skill" : "goal";
+          task.taskType = taskSkillIds.length > 0 ? "skill" : "goal";
           task.xp = parseInt(taskXp) || 10;
-          task.linkedId = taskSkillId || "general";
+          task.linkedIds = taskSkillIds.join(",");
           task.color =
-            skills.find((s) => s.id === taskSkillId)?.color || "#f5d060";
+            taskSkillIds.length > 0
+              ? skills.find((s) => s.id === taskSkillIds[0])?.color || "#f5d060"
+              : "#f5d060";
           task.isUrgent = taskUrgent;
           task.status = "pending";
           task.targetNeed = taskNeed;
-          task.linkedQuestId = taskQuestId; // 🔗 The new V4 Link!
-          console.log("Creating task with quest link:", {
+          task.linkedQuestIds = taskQuestIds.join(","); // 🔗 The new V4 Link!
+          console.log("Creating task with quest links:", {
             taskName,
-            taskQuestId,
+            taskQuestIds,
             allFields: task,
           });
-        }) as Task;
+        })) as Task;
 
         // Verify the data was saved
         console.log(
           "Task created with ID:",
           newTask.id,
-          "Quest ID:",
-          newTask.linkedQuestId,
+          "Quest IDs:",
+          newTask.linkedQuestIds,
         );
 
         // Reload available quests since we may have filled one up
@@ -274,37 +276,30 @@ export default function CreationMatrix({
                 )}
               </View>
 
-              <Text style={styles.label}>LINK TO SKILL (Optional)</Text>
+              <Text style={styles.label}>LINK TO SKILLS (Multiple)</Text>
               <View style={styles.chipRow}>
-                <TouchableOpacity
-                  style={[styles.chip, !taskSkillId && styles.chipActive]}
-                  onPress={() => setTaskSkillId(null)}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      !taskSkillId && styles.chipTextActive,
-                    ]}
-                  >
-                    None
-                  </Text>
-                </TouchableOpacity>
                 {skills.map((s) => (
                   <TouchableOpacity
                     key={s.id}
                     style={[
                       styles.chip,
-                      taskSkillId === s.id && {
+                      taskSkillIds.includes(s.id) && {
                         borderColor: s.color,
                         backgroundColor: s.color + "20",
                       },
                     ]}
-                    onPress={() => setTaskSkillId(s.id)}
+                    onPress={() => {
+                      setTaskSkillIds((prev) =>
+                        prev.includes(s.id)
+                          ? prev.filter((id) => id !== s.id)
+                          : [...prev, s.id],
+                      );
+                    }}
                   >
                     <Text
                       style={[
                         styles.chipText,
-                        taskSkillId === s.id && { color: s.color },
+                        taskSkillIds.includes(s.id) && { color: s.color },
                       ]}
                     >
                       {s.name}
@@ -313,21 +308,8 @@ export default function CreationMatrix({
                 ))}
               </View>
 
-              <Text style={styles.label}>LINK TO QUEST (Optional)</Text>
+              <Text style={styles.label}>LINK TO QUESTS (Multiple)</Text>
               <View style={styles.chipRow}>
-                <TouchableOpacity
-                  style={[styles.chip, !taskQuestId && styles.chipActive]}
-                  onPress={() => setTaskQuestId(null)}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      !taskQuestId && styles.chipTextActive,
-                    ]}
-                  >
-                    None
-                  </Text>
-                </TouchableOpacity>
                 {availableQuests
                   .filter((q) => q.status === "active")
                   .map((q) => (
@@ -335,17 +317,23 @@ export default function CreationMatrix({
                       key={q.id}
                       style={[
                         styles.chip,
-                        taskQuestId === q.id && {
+                        taskQuestIds.includes(q.id) && {
                           borderColor: "#bd70ff",
                           backgroundColor: "rgba(189,112,255,0.1)",
                         },
                       ]}
-                      onPress={() => setTaskQuestId(q.id)}
+                      onPress={() => {
+                        setTaskQuestIds((prev) =>
+                          prev.includes(q.id)
+                            ? prev.filter((id) => id !== q.id)
+                            : [...prev, q.id],
+                        );
+                      }}
                     >
                       <Text
                         style={[
                           styles.chipText,
-                          taskQuestId === q.id && { color: "#bd70ff" },
+                          taskQuestIds.includes(q.id) && { color: "#bd70ff" },
                         ]}
                       >
                         {q.title}

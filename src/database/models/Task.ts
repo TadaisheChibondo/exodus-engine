@@ -7,7 +7,7 @@ export default class Task extends Model {
   @text("name") name!: string;
   @text("task_type") taskType!: string;
   @field("xp") xp!: number;
-  @text("linked_id") linkedId!: string;
+  @text("linked_ids") linkedIds!: string;
   @text("color") color!: string;
 
   // 👇 FIXED: Use @field for booleans!
@@ -19,5 +19,5 @@ export default class Task extends Model {
   @text("target_need") targetNeed?: string;
 
   // The Phase C Quest Link
-  @text("linked_quest_id") linkedQuestId?: string;
+  @text("linked_quest_ids") linkedQuestIds?: string;
 }
