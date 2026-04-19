@@ -7,6 +7,15 @@ import {
 export default schemaMigrations({
   migrations: [
     {
+      toVersion: 7,
+      steps: [
+        addColumns({
+          table: "tasks",
+          columns: [{ name: "completed_at", type: "string", isOptional: true }],
+        }),
+      ],
+    },
+    {
       toVersion: 6,
       steps: [
         addColumns({

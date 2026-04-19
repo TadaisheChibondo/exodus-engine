@@ -14,6 +14,7 @@ export default class Task extends Model {
   @field("is_urgent") isUrgent!: boolean;
 
   @text("status") status!: string;
+  @text("completed_at") completedAt?: string;
 
   // The Phase B Need Link
   @text("target_need") targetNeed?: string;

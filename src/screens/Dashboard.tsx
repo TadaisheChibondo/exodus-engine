@@ -86,6 +86,7 @@ export default function Dashboard() {
       // 2a. Mark task as completed
       await taskRecord.update((task: any) => {
         task.status = "completed";
+        task.completedAt = new Date().toISOString();
       });
 
       // 2b. Quest Progression — for each linked quest

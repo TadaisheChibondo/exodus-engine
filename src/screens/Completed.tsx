@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -132,9 +133,11 @@ function TaskCardFront({ task }: { task: any }) {
 function TaskCardBack({
   task,
   skillsMap,
+  onDelete,
 }: {
   task: any;
   skillsMap: Record<string, string>;
+  onDelete?: () => void;
 }) {
   // Handle the new comma-separated linked_ids field (or fallback to old single linked_id)
   let linkedSkillId: string | null = null;
@@ -202,6 +205,18 @@ function TaskCardBack({
           {(task.task_type ?? "GENERAL").toUpperCase()}
         </Text>
       </View>
+
+      {onDelete ? (
+        <View style={styles.deleteButtonWrap}>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            activeOpacity={0.7}
+            onPress={onDelete}
+          >
+            <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -340,6 +355,53 @@ function StatPill({
   );
 }
 
+function formatCompletedSectionLabel(completedAt?: string) {
+  if (!completedAt) return "Completed";
+
+  const completedDate = new Date(completedAt);
+  if (Number.isNaN(completedDate.getTime())) return "Completed";
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const normalizedCompleted = new Date(
+    completedDate.getFullYear(),
+    completedDate.getMonth(),
+    completedDate.getDate(),
+  );
+
+  if (normalizedCompleted.getTime() === today.getTime()) return "Today";
+  if (normalizedCompleted.getTime() === yesterday.getTime()) return "Yesterday";
+
+  return completedDate.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function groupTasksByCompletionDate(tasks: any[]) {
+  const sortedTasks = [...tasks].sort((a, b) => {
+    const aTime = new Date(a.completed_at || a.completedAt || 0).getTime();
+    const bTime = new Date(b.completed_at || b.completedAt || 0).getTime();
+    return bTime - aTime;
+  });
+
+  const groups = new Map<string, any[]>();
+  sortedTasks.forEach((task) => {
+    const label = formatCompletedSectionLabel(
+      task.completed_at || task.completedAt,
+    );
+    if (!groups.has(label)) {
+      groups.set(label, []);
+    }
+    groups.get(label)?.push(task);
+  });
+
+  return Array.from(groups.entries(), ([label, items]) => ({ label, items }));
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function Completed() {
   const insets = useSafeAreaInsets();
@@ -359,7 +421,7 @@ export default function Completed() {
 
     const tasks = await database
       .get("tasks")
-      .query(Q.where("status", "completed"))
+      .query(Q.where("status", "completed"), Q.sortBy("completed_at", "desc"))
       .fetch();
     setCompletedTasks(tasks.map((t) => t._raw));
 
@@ -368,6 +430,31 @@ export default function Completed() {
       .query(Q.where("status", "completed"))
       .fetch();
     setCompletedQuests(quests.map((q) => q._raw));
+  };
+
+  const handleDeleteCompletedTask = async (taskId: string) => {
+    await database.write(async () => {
+      const taskRecord: any = await database.get("tasks").find(taskId);
+      await taskRecord.destroyPermanently();
+    });
+
+    await loadData();
+  };
+
+  const handleConfirmDelete = (taskName: string, taskId: string) => {
+    Alert.alert(
+      "Delete completed task",
+      `Delete "${taskName}" permanently? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => handleDeleteCompletedTask(taskId),
+        },
+      ],
+      { cancelable: true },
+    );
   };
 
   useFocusEffect(
@@ -379,6 +466,11 @@ export default function Completed() {
   const totalXp =
     completedTasks.reduce((sum, t) => sum + (t.xp || 0), 0) +
     completedQuests.reduce((sum, q) => sum + (q.xp_reward || 0), 0);
+
+  const groupedCompletedTasks = useMemo(
+    () => groupTasksByCompletionDate(completedTasks),
+    [completedTasks],
+  );
 
   const switchTab = (tab: "tasks" | "quests") => {
     setActiveTab(tab);
@@ -398,10 +490,9 @@ export default function Completed() {
     backgroundColor: tabIndicator.value < 0.5 ? "#3d9bff" : "#bd70ff",
   }));
 
-  const currentItems = activeTab === "tasks" ? completedTasks : completedQuests;
-  const rows: any[][] = [];
-  for (let i = 0; i < currentItems.length; i += 2) {
-    rows.push(currentItems.slice(i, i + 2));
+  const currentQuestRows: any[][] = [];
+  for (let i = 0; i < completedQuests.length; i += 2) {
+    currentQuestRows.push(completedQuests.slice(i, i + 2));
   }
 
   return (
@@ -479,34 +570,80 @@ export default function Completed() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {currentItems.length === 0 ? (
+        {activeTab === "tasks" ? (
+          groupedCompletedTasks.length === 0 ? (
+            <Animated.View
+              entering={FadeInDown.duration(400)}
+              style={styles.emptyState}
+            >
+              <Text style={styles.emptyIcon}>⬡</Text>
+              <Text style={styles.emptyTitle}>Nothing here yet.</Text>
+              <Text style={styles.emptyBody}>
+                Complete tasks from the Action Queue to see them archived here.
+              </Text>
+            </Animated.View>
+          ) : (
+            groupedCompletedTasks.map((section, sectionIdx) => (
+              <View key={section.label} style={styles.sectionBlock}>
+                <Text style={styles.sectionHeader}>{section.label}</Text>
+                {section.items.map((item, index) => {
+                  const rowIdx = Math.floor(index / 2);
+                  if (index % 2 !== 0) return null;
+                  const rowItems = section.items.slice(index, index + 2);
+                  return (
+                    <View
+                      key={`${section.label}-${rowIdx}`}
+                      style={styles.cardRow}
+                    >
+                      {rowItems.map((taskItem, colIdx) => {
+                        const cardIndex = sectionIdx * 10 + rowIdx * 2 + colIdx;
+                        return (
+                          <FlipCard
+                            key={taskItem.id}
+                            index={cardIndex}
+                            front={<TaskCardFront task={taskItem} />}
+                            back={
+                              <TaskCardBack
+                                task={taskItem}
+                                skillsMap={skillsMap}
+                                onDelete={() =>
+                                  handleConfirmDelete(
+                                    taskItem.name,
+                                    taskItem.id,
+                                  )
+                                }
+                              />
+                            }
+                          />
+                        );
+                      })}
+                      {rowItems.length === 1 && (
+                        <View style={styles.flipCardOuter} />
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            ))
+          )
+        ) : completedQuests.length === 0 ? (
           <Animated.View
             entering={FadeInDown.duration(400)}
             style={styles.emptyState}
           >
-            <Text style={styles.emptyIcon}>
-              {activeTab === "tasks" ? "⬡" : "◎"}
-            </Text>
+            <Text style={styles.emptyIcon}>◎</Text>
             <Text style={styles.emptyTitle}>Nothing here yet.</Text>
             <Text style={styles.emptyBody}>
-              {activeTab === "tasks"
-                ? "Complete tasks from the Action Queue to see them archived here."
-                : "Finish all sub-tasks in a quest or force-complete it to log it here."}
+              Finish all sub-tasks in a quest or force-complete it to log it
+              here.
             </Text>
           </Animated.View>
         ) : (
-          rows.map((row, rowIdx) => (
+          currentQuestRows.map((row, rowIdx) => (
             <View key={rowIdx} style={styles.cardRow}>
               {row.map((item, colIdx) => {
                 const cardIndex = rowIdx * 2 + colIdx;
-                return activeTab === "tasks" ? (
-                  <FlipCard
-                    key={item.id}
-                    index={cardIndex}
-                    front={<TaskCardFront task={item} />}
-                    back={<TaskCardBack task={item} skillsMap={skillsMap} />}
-                  />
-                ) : (
+                return (
                   <FlipCard
                     key={item.id}
                     index={cardIndex}
@@ -583,6 +720,14 @@ const styles = StyleSheet.create({
 
   scrollContent: { paddingHorizontal: 20, paddingTop: 4 },
   cardRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
+  sectionBlock: { marginBottom: 22 },
+  sectionHeader: {
+    color: "#dde3f0",
+    fontSize: 13,
+    fontWeight: "800",
+    marginBottom: 10,
+    letterSpacing: 1,
+  },
 
   flipCardOuter: { flex: 1, height: 185 },
   flipCardInner: { flex: 1, height: 185, position: "relative" },
@@ -691,6 +836,21 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.3)",
     fontSize: 9,
     fontWeight: "700",
+    letterSpacing: 1,
+  },
+  deleteButtonWrap: { marginTop: 12, alignItems: "flex-end" },
+  deleteButton: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  deleteButtonText: {
+    color: "#ff6b6b",
+    fontSize: 10,
+    fontWeight: "800",
     letterSpacing: 1,
   },
   backVal: {

@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from "@nozbe/watermelondb";
 
 export default appSchema({
-  version: 6,
+  version: 7,
   tables: [
     tableSchema({
       name: "skills",
@@ -34,7 +34,7 @@ export default appSchema({
         { name: "color", type: "string" },
         { name: "is_urgent", type: "boolean" },
         { name: "status", type: "string" },
-        // 👇 ADD THIS NEW COLUMN
+        { name: "completed_at", type: "string", isOptional: true },
         { name: "target_need", type: "string", isOptional: true },
         { name: "linked_quest_ids", type: "string", isOptional: true },
       ],

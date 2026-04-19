@@ -18,7 +18,11 @@ export default function QuestLog() {
   // 1. Fetch Quests (Tasks are no longer needed here! Massive memory save.)
   const loadData = async () => {
     const questCollection = await database.get("quests").query().fetch();
-    setQuests(questCollection.map((q) => q._raw));
+    setQuests(
+      questCollection
+        .map((q) => q._raw)
+        .filter((quest) => quest.status !== "completed"),
+    );
   };
 
   useFocusEffect(
@@ -184,6 +188,10 @@ export default function QuestLog() {
         ) : (
           <Text style={styles.emptyText}>
             No active quests. The horizon is clear.
+            {"\n\n"}
+            <Text style={styles.emptyTextSmall}>
+              Completed quests are archived in the Codex.
+            </Text>
           </Text>
         )}
       </ScrollView>
@@ -321,5 +329,10 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     textAlign: "center",
     marginTop: 40,
+  },
+  emptyTextSmall: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.2)",
+    fontStyle: "italic",
   },
 });
