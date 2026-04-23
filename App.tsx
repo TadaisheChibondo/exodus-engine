@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { StatusBar } from "react-native";
+import { AppState, StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -35,7 +35,17 @@ export default function App() {
   const initEngine = useEngineStore((state) => state.initEngine);
   const tick = useEngineStore((state) => state.tick);
   const getPlumbobStatus = useEngineStore((state) => state.getPlumbobStatus);
+  const applyElapsedDecay = useEngineStore((state) => state.applyElapsedDecay);
+  const setLastUpdatedAt = useEngineStore((state) => state.setLastUpdatedAt);
+  const lastUpdatedAt = useEngineStore((state) => state.lastUpdatedAt);
   const criticalNotified = useRef(false);
+  const currentAppState = useRef(AppState.currentState);
+  const lastUpdatedRef = useRef(lastUpdatedAt);
+  const hasAppliedInitialDecay = useRef(false);
+
+  useEffect(() => {
+    lastUpdatedRef.current = lastUpdatedAt;
+  }, [lastUpdatedAt]);
 
   useEffect(() => {
     // Configure notification handler
@@ -82,7 +92,44 @@ export default function App() {
       }
     }, 600000); // 10-minute heartbeat
     return () => clearInterval(interval);
-  }, []);
+  }, [initEngine, tick, getPlumbobStatus]);
+
+  useEffect(() => {
+    // Apply initial decay on app load
+    if (!hasAppliedInitialDecay.current && lastUpdatedAt) {
+      const now = Date.now();
+      const elapsed = now - lastUpdatedAt;
+      if (elapsed > 0) {
+        applyElapsedDecay(elapsed);
+        setLastUpdatedAt(now);
+      }
+      hasAppliedInitialDecay.current = true;
+    }
+  }, []); // Empty deps to run only once
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (
+        currentAppState.current.match(/inactive|background/) &&
+        nextState === "active"
+      ) {
+        const now = Date.now();
+        const elapsed = now - (lastUpdatedRef.current || now);
+        if (elapsed > 0) {
+          applyElapsedDecay(elapsed);
+          setLastUpdatedAt(now);
+        }
+      }
+
+      if (nextState.match(/inactive|background/)) {
+        setLastUpdatedAt(Date.now());
+      }
+
+      currentAppState.current = nextState;
+    });
+
+    return () => subscription.remove();
+  }, [applyElapsedDecay, setLastUpdatedAt]);
 
   return (
     // Wrap everything in the SafeAreaProvider

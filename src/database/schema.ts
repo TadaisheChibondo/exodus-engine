@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from "@nozbe/watermelondb";
 
 export default appSchema({
-  version: 7,
+  version: 8,
   tables: [
     tableSchema({
       name: "skills",
@@ -12,6 +12,7 @@ export default appSchema({
         { name: "max_xp", type: "number" },
         { name: "color", type: "string" },
         { name: "icon", type: "string" },
+        { name: "ai_blueprint", type: "string", isOptional: true },
       ],
     }),
     tableSchema({

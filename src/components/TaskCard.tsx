@@ -24,12 +24,14 @@ interface TaskCardProps {
   };
   onComplete: (id: string) => void;
   onCancel: (id: string) => void;
+  onEdit: (task: any) => void;
 }
 
 export default function TaskCard({
   task,
   onComplete,
   onCancel,
+  onEdit,
 }: TaskCardProps) {
   const translateX = useSharedValue(0);
   const opacity = useSharedValue(1);
@@ -62,6 +64,14 @@ export default function TaskCard({
       }
     });
 
+  const longPress = Gesture.LongPress()
+    .minDuration(500)
+    .onStart(() => {
+      runOnJS(onEdit)(task);
+    });
+
+  const combinedGesture = Gesture.Race(pan, longPress);
+
   // Apply the animation to the styles
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -73,7 +83,7 @@ export default function TaskCard({
       layout={LinearTransition.springify().damping(18).stiffness(150)}
       style={{ width: "100%" }}
     >
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={combinedGesture}>
         <Animated.View
           style={[styles.card, { borderLeftColor: task.color }, animatedStyle]}
         >

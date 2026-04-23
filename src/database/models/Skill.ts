@@ -10,4 +10,5 @@ export default class Skill extends Model {
   @field("max_xp") max_xp!: number;
   @text("color") color!: string;
   @text("icon") icon!: string;
+  @text("ai_blueprint") aiBlueprint?: string;
 }

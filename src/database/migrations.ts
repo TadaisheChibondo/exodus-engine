@@ -7,6 +7,15 @@ import {
 export default schemaMigrations({
   migrations: [
     {
+      toVersion: 8,
+      steps: [
+        addColumns({
+          table: "skills",
+          columns: [{ name: "ai_blueprint", type: "string", isOptional: true }],
+        }),
+      ],
+    },
+    {
       toVersion: 7,
       steps: [
         addColumns({

@@ -35,6 +35,7 @@ export default function Dashboard() {
 
   // 3. UI State for the Modal
   const [isMatrixOpen, setIsMatrixOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<any>(null);
 
   // 4. Load Data from Database
   const loadData = async () => {
@@ -205,6 +206,12 @@ export default function Dashboard() {
     loadData();
   };
 
+  // 6. Handle Task Edit
+  const handleTaskEdit = (task: any) => {
+    setEditingTask(task);
+    setIsMatrixOpen(true);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* HEADER: Plumbob & Needs */}
@@ -267,6 +274,7 @@ export default function Dashboard() {
                 task={task}
                 onComplete={handleTaskComplete}
                 onCancel={handleTaskCancel}
+                onEdit={handleTaskEdit}
               />
             ))
           ) : (
@@ -289,7 +297,11 @@ export default function Dashboard() {
       {isMatrixOpen && (
         <CreationMatrix
           skills={skills}
-          onClose={() => setIsMatrixOpen(false)}
+          editingTask={editingTask}
+          onClose={() => {
+            setIsMatrixOpen(false);
+            setEditingTask(null);
+          }}
           onSpawn={loadData}
         />
       )}

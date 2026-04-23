@@ -22,12 +22,14 @@ import Task from "../database/models/Task";
 
 interface CreationMatrixProps {
   skills: any[];
+  editingTask?: any;
   onClose: () => void;
   onSpawn: () => void;
 }
 
 export default function CreationMatrix({
   skills,
+  editingTask,
   onClose,
   onSpawn,
 }: CreationMatrixProps) {
@@ -45,6 +47,35 @@ export default function CreationMatrix({
   >("vitality");
   const [taskUrgent, setTaskUrgent] = useState(false);
   const [taskQuestIds, setTaskQuestIds] = useState<string[]>([]);
+
+  // Populate fields when editing
+  useEffect(() => {
+    if (editingTask) {
+      setTaskName(editingTask.name || "");
+      setTaskXp(editingTask.xp?.toString() || "50");
+      setTaskSkillIds(
+        editingTask.linkedIds
+          ? editingTask.linkedIds.split(",").filter((id: string) => id)
+          : [],
+      );
+      setTaskNeed(editingTask.targetNeed || "vitality");
+      setTaskUrgent(editingTask.is_urgent || false);
+      setTaskQuestIds(
+        editingTask.linkedQuestIds
+          ? editingTask.linkedQuestIds.split(",").filter((id: string) => id)
+          : [],
+      );
+      setActiveTab("task");
+    } else {
+      // Reset for new creation
+      setTaskName("");
+      setTaskXp("50");
+      setTaskSkillIds([]);
+      setTaskNeed("vitality");
+      setTaskUrgent(false);
+      setTaskQuestIds([]);
+    }
+  }, [editingTask]);
 
   // SKILL State
   const [skillName, setSkillName] = useState("");
@@ -97,51 +128,70 @@ export default function CreationMatrix({
       if (activeTab === "task") {
         if (!taskName.trim()) return;
 
-        // Check if quests can accept more tasks
-        for (const questId of taskQuestIds) {
-          const quest = (await database.get("quests").find(questId)) as Quest;
-          const linkedTasks = (await database
-            .get("tasks")
-            .query(Q.where("linked_quest_ids", Q.like(`%${questId}%`)))
-            .fetch()) as Task[];
-
-          if (linkedTasks.length >= quest.totalTasks) {
-            console.log("Quest already has maximum tasks linked");
-            return; // Don't create the task
-          }
-        }
-
-        const newTask = (await database.get("tasks").create((task: any) => {
-          task.name = taskName;
-          task.taskType = taskSkillIds.length > 0 ? "skill" : "goal";
-          task.xp = parseInt(taskXp) || 10;
-          task.linkedIds = taskSkillIds.join(",");
-          task.color =
-            taskSkillIds.length > 0
-              ? skills.find((s) => s.id === taskSkillIds[0])?.color || "#f5d060"
-              : "#f5d060";
-          task.isUrgent = taskUrgent;
-          task.status = "pending";
-          task.targetNeed = taskNeed;
-          task.linkedQuestIds = taskQuestIds.join(","); // 🔗 The new V4 Link!
-          console.log("Creating task with quest links:", {
-            taskName,
-            taskQuestIds,
-            allFields: task,
+        if (editingTask) {
+          // Update existing task
+          const taskToUpdate = await database.get("tasks").find(editingTask.id);
+          await taskToUpdate.update((task: any) => {
+            task.name = taskName;
+            task.taskType = taskSkillIds.length > 0 ? "skill" : "goal";
+            task.xp = parseInt(taskXp) || 10;
+            task.linkedIds = taskSkillIds.join(",");
+            task.color =
+              taskSkillIds.length > 0
+                ? skills.find((s) => s.id === taskSkillIds[0])?.color ||
+                  "#f5d060"
+                : "#f5d060";
+            task.isUrgent = taskUrgent;
+            task.targetNeed = taskNeed;
+            task.linkedQuestIds = taskQuestIds.join(",");
           });
-        })) as Task;
+        } else {
+          // Check if quests can accept more tasks
+          for (const questId of taskQuestIds) {
+            const quest = (await database.get("quests").find(questId)) as Quest;
+            const linkedTasks = (await database
+              .get("tasks")
+              .query(Q.where("linked_quest_ids", Q.like(`%${questId}%`)))
+              .fetch()) as Task[];
 
-        // Verify the data was saved
-        console.log(
-          "Task created with ID:",
-          newTask.id,
-          "Quest IDs:",
-          newTask.linkedQuestIds,
-        );
+            if (linkedTasks.length >= quest.totalTasks) {
+              console.log("Quest already has maximum tasks linked");
+              return; // Don't create the task
+            }
+          }
 
-        // Reload available quests since we may have filled one up
-        await loadMatrixData();
-      } else if (activeTab === "skill") {
+          const newTask = (await database.get("tasks").create((task: any) => {
+            task.name = taskName;
+            task.taskType = taskSkillIds.length > 0 ? "skill" : "goal";
+            task.xp = parseInt(taskXp) || 10;
+            task.linkedIds = taskSkillIds.join(",");
+            task.color =
+              taskSkillIds.length > 0
+                ? skills.find((s) => s.id === taskSkillIds[0])?.color ||
+                  "#f5d060"
+                : "#f5d060";
+            task.isUrgent = taskUrgent;
+            task.status = "pending";
+            task.targetNeed = taskNeed;
+            task.linkedQuestIds = taskQuestIds.join(","); // 🔗 The new V4 Link!
+            console.log("Creating task with quest links:", {
+              taskName,
+              taskQuestIds,
+              allFields: task,
+            });
+          })) as Task;
+
+          // Verify the data was saved
+          console.log(
+            "Task created with ID:",
+            newTask.id,
+            "Quest IDs:",
+            newTask.linkedQuestIds,
+          );
+
+          // Reload available quests since we may have filled one up
+          await loadMatrixData();
+        }
         if (!skillName.trim()) return;
         await database.get("skills").create((skill: any) => {
           skill.name = skillName;
