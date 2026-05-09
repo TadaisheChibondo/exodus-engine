@@ -20,7 +20,7 @@ export default function QuestLog() {
     const questCollection = await database.get("quests").query().fetch();
     setQuests(
       questCollection
-        .map((q) => q._raw)
+        .map((q) => q._raw as any)
         .filter((quest) => quest.status !== "completed"),
     );
   };

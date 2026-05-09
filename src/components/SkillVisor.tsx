@@ -11,11 +11,16 @@ import {
 } from "react-native";
 import { database } from "../database";
 import { generateSkillBlueprint } from "../services/gemini";
+import { Q } from "@nozbe/watermelondb";
 
 interface SkillVisorProps {
   skill: any;
   onClose: () => void;
-  onUpdate: () => void; // Used to refresh the SkillTree if a blueprint is saved
+  // ✅ FIX: onUpdate now receives the refreshed raw skill object so SkillTree
+  // can update activeSkill and keep the skill prop in sync. Without this, after
+  // saving a blueprint the SkillVisor still holds the old stale _raw object;
+  // any re-render of SkillTree resets the local blueprint state back to null.
+  onUpdate: (refreshedSkill?: any) => void;
 }
 
 export default function SkillVisor({
@@ -26,16 +31,19 @@ export default function SkillVisor({
   const [isGenerating, setIsGenerating] = useState(false);
   const [blueprint, setBlueprint] = useState<any>(null);
 
-  // Parse the blueprint when the modal opens
+  // Parse the blueprint whenever the skill blueprint string changes
   useEffect(() => {
     if (skill.ai_blueprint) {
       try {
         setBlueprint(JSON.parse(skill.ai_blueprint));
       } catch (e) {
         console.error("Failed to parse blueprint JSON", e);
+        setBlueprint(null);
       }
+    } else {
+      setBlueprint(null);
     }
-  }, [skill]);
+  }, [skill.ai_blueprint]);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -45,12 +53,19 @@ export default function SkillVisor({
       // Save it permanently to the skill in WatermelonDB
       await database.write(async () => {
         const skillRecord: any = await database.get("skills").find(skill.id);
+        // ✅ FIX: Use the model's decorated property name `aiBlueprint`, NOT
+        // the raw column name `ai_blueprint`. WatermelonDB update() callbacks
+        // receive a model instance — its setters are the camelCase names from
+        // @text/@field decorators. `s.ai_blueprint` creates an untracked plain
+        // JS property that WatermelonDB ignores; nothing ever reaches SQLite.
         await skillRecord.update((s: any) => {
-          s.ai_blueprint = JSON.stringify(generatedData);
+          s.aiBlueprint = JSON.stringify(generatedData); // ✅ camelCase property
         });
       });
       setBlueprint(generatedData);
-      onUpdate(); // Tell the parent screen to fetch fresh data
+      // ✅ Pass the updated raw record back so SkillTree can sync activeSkill
+      const refreshed: any = await database.get("skills").find(skill.id);
+      onUpdate(refreshed._raw);
     } else {
       Alert.alert(
         "Neural Link Failed",
@@ -60,6 +75,56 @@ export default function SkillVisor({
     setIsGenerating(false);
   };
 
+  const handleDeleteSkill = async () => {
+    Alert.alert(
+      "Delete Skill",
+      `Are you sure you want to delete "${skill.name}"? This will also remove all related goals and tasks.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await database.write(async () => {
+                // Delete related goals
+                const goalsCollection = database.get("goals");
+                const relatedGoals = await goalsCollection
+                  .query(Q.where("skill_link", skill.id))
+                  .fetch();
+                await Promise.all(
+                  relatedGoals.map((goal: any) => goal.destroyPermanently()),
+                );
+
+                // Delete related tasks (assuming linkedIds contains skill ID)
+                const tasksCollection = database.get("tasks");
+                const allTasks = await tasksCollection.query().fetch();
+                const relatedTasks = allTasks.filter(
+                  (task: any) =>
+                    task.linkedIds && task.linkedIds.includes(skill.id),
+                );
+                await Promise.all(
+                  relatedTasks.map((task: any) => task.destroyPermanently()),
+                );
+
+                // Delete the skill
+                const skillRecord = await database.get("skills").find(skill.id);
+                await skillRecord.destroyPermanently();
+              });
+
+              Alert.alert("Skill Deleted", `"${skill.name}" has been removed.`);
+              onClose();
+              onUpdate();
+            } catch (error) {
+              console.error("Error deleting skill:", error);
+              Alert.alert("Error", "Failed to delete skill. Please try again.");
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleSpawnActivity = async (activity: any) => {
     await database.write(async () => {
       await database.get("tasks").create((task: any) => {
@@ -67,8 +132,8 @@ export default function SkillVisor({
         task.xp = activity.xp;
         task.color = skill.color;
         task.status = "pending";
-        task.linked_id = skill.id;
-        task.target_need = activity.recommended_need || "stimulation";
+        task.linkedIds = skill.id;
+        task.targetNeed = activity.recommended_need || "stimulation"; // ✅ camelCase
       });
     });
 
@@ -90,9 +155,17 @@ export default function SkillVisor({
               </Text>
               <Text style={styles.subtitle}>NEURAL MAPPING VISOR</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeText}>X</Text>
-            </TouchableOpacity>
+            <View style={styles.headerButtons}>
+              <TouchableOpacity
+                onPress={handleDeleteSkill}
+                style={styles.deleteBtn}
+              >
+                <Text style={styles.deleteText}>🗑️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <Text style={styles.closeText}>X</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* CONTENT */}
@@ -200,6 +273,17 @@ const styles = StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  headerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  deleteBtn: {
+    padding: 10,
+    marginRight: 10,
+  },
+  deleteText: {
+    fontSize: 16,
   },
   title: { fontSize: 22, fontWeight: "900", letterSpacing: 2 },
   subtitle: {

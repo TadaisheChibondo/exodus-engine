@@ -95,9 +95,16 @@ export default function SkillTree() {
       {/* 🚀 Render the Visor if a skill is selected */}
       {activeSkill && (
         <SkillVisor
+          key={activeSkill.id}
           skill={activeSkill}
           onClose={() => setActiveSkill(null)}
-          onUpdate={loadSkills}
+          onUpdate={(refreshedSkill) => {
+            // ✅ FIX: If SkillVisor passes back a refreshed skill (e.g. after
+            // saving an AI blueprint), update activeSkill immediately so the
+            // skill prop stays in sync and doesn't reset the blueprint display.
+            if (refreshedSkill) setActiveSkill(refreshedSkill);
+            loadSkills(); // always refresh the full list too
+          }}
         />
       )}
     </View>

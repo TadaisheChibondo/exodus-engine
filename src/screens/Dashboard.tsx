@@ -38,7 +38,8 @@ export default function Dashboard() {
   const [editingTask, setEditingTask] = useState<any>(null);
 
   // 4. Load Data from Database
-  const loadData = async () => {
+  // ✅ Returns a Promise so CreationMatrix can await it before closing the modal.
+  const loadData = async (): Promise<void> => {
     const skillsCollection = await database.get("skills").query().fetch();
     const pendingTasksCollection = await database
       .get("tasks")

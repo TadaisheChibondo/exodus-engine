@@ -24,7 +24,7 @@ interface CreationMatrixProps {
   skills: any[];
   editingTask?: any;
   onClose: () => void;
-  onSpawn: () => void;
+  onSpawn: () => Promise<void> | void;
 }
 
 export default function CreationMatrix({
@@ -94,7 +94,11 @@ export default function CreationMatrix({
 
   const THEME_COLORS = ["#00e5b0", "#f5d060", "#ff4444", "#bd70ff", "#4488ff"];
 
-  // Fetch active quests when the matrix opens so you can link tasks to them
+  // Fetch active quests when the matrix opens so you can link tasks to them.
+  // ✅ FIX: This function must NEVER be called inside database.write().
+  // Querying the DB inside a write transaction can stall WatermelonDB's action
+  // queue, which would cause all subsequent writes (e.g. skill creation) to
+  // silently never execute.
   const loadMatrixData = async () => {
     const allQuests = (await database.get("quests").query().fetch()) as Quest[];
     const available = [];
@@ -124,6 +128,9 @@ export default function CreationMatrix({
   const handleSpawn = async () => {
     Keyboard.dismiss();
 
+    // ─── Track whether a task was created so we can reload quests after ───────
+    let taskWasCreated = false;
+
     await database.write(async () => {
       if (activeTab === "task") {
         if (!taskName.trim()) return;
@@ -145,6 +152,7 @@ export default function CreationMatrix({
             task.targetNeed = taskNeed;
             task.linkedQuestIds = taskQuestIds.join(",");
           });
+          taskWasCreated = true;
         } else {
           // Check if quests can accept more tasks
           for (const questId of taskQuestIds) {
@@ -173,7 +181,7 @@ export default function CreationMatrix({
             task.isUrgent = taskUrgent;
             task.status = "pending";
             task.targetNeed = taskNeed;
-            task.linkedQuestIds = taskQuestIds.join(","); // 🔗 The new V4 Link!
+            task.linkedQuestIds = taskQuestIds.join(",");
             console.log("Creating task with quest links:", {
               taskName,
               taskQuestIds,
@@ -181,7 +189,6 @@ export default function CreationMatrix({
             });
           })) as Task;
 
-          // Verify the data was saved
           console.log(
             "Task created with ID:",
             newTask.id,
@@ -189,9 +196,11 @@ export default function CreationMatrix({
             newTask.linkedQuestIds,
           );
 
-          // Reload available quests since we may have filled one up
-          await loadMatrixData();
+          taskWasCreated = true;
+          // ✅ FIX: loadMatrixData() removed from here — it must not run inside
+          // a write transaction. It is called below, after the write completes.
         }
+      } else if (activeTab === "skill") {
         if (!skillName.trim()) return;
         await database.get("skills").create((skill: any) => {
           skill.name = skillName;
@@ -215,7 +224,17 @@ export default function CreationMatrix({
       }
     });
 
-    onSpawn();
+    // ─── All DB work is done. Now reload UI state. ────────────────────────────
+
+    // ✅ FIX: Reload available quests AFTER the write, not inside it.
+    if (taskWasCreated) {
+      await loadMatrixData();
+    }
+
+    // ✅ FIX: await onSpawn() so the parent (Dashboard) finishes re-fetching
+    // skills/tasks from the DB before we close the modal. Without this, the
+    // modal unmounts before setSkills() fires, and the new skill never appears.
+    await onSpawn();
     onClose();
   };
 

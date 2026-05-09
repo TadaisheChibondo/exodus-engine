@@ -57,17 +57,17 @@ export const useEngineStore = create<EngineState>()(
               // Drains restoration (mental fatigue) and connectivity (isolation)
               newNeeds.restoration = Math.max(
                 0,
-                newNeeds.restoration - amount * 0.5,
+                newNeeds.restoration - amount * 0.2,
               );
               newNeeds.connectivity = Math.max(
                 0,
-                newNeeds.connectivity - amount * 0.3,
+                newNeeds.connectivity - amount * 0.2,
               );
             } else if (need === "vitality") {
               // Drains restoration (physical fatigue)
               newNeeds.restoration = Math.max(
                 0,
-                newNeeds.restoration - amount * 0.4,
+                newNeeds.restoration - amount * 0.2,
               );
             } else if (need === "connectivity") {
               // Drains restoration (social battery depletion)
