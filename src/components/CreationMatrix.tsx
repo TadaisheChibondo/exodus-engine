@@ -33,12 +33,10 @@ export default function CreationMatrix({
   onClose,
   onSpawn,
 }: CreationMatrixProps) {
-  // Navigation State
   const [activeTab, setActiveTab] = useState<"task" | "skill" | "quest">(
     "task",
   );
 
-  // TASK State
   const [taskName, setTaskName] = useState("");
   const [taskXp, setTaskXp] = useState("50");
   const [taskSkillIds, setTaskSkillIds] = useState<string[]>([]);
@@ -48,7 +46,6 @@ export default function CreationMatrix({
   const [taskUrgent, setTaskUrgent] = useState(false);
   const [taskQuestIds, setTaskQuestIds] = useState<string[]>([]);
 
-  // Populate fields when editing
   useEffect(() => {
     if (editingTask) {
       setTaskName(editingTask.name || "");
@@ -67,7 +64,6 @@ export default function CreationMatrix({
       );
       setActiveTab("task");
     } else {
-      // Reset for new creation
       setTaskName("");
       setTaskXp("50");
       setTaskSkillIds([]);
@@ -77,28 +73,44 @@ export default function CreationMatrix({
     }
   }, [editingTask]);
 
-  // SKILL State
   const [skillName, setSkillName] = useState("");
   const [skillIcon, setSkillIcon] = useState("⚔️");
   const [skillColor, setSkillColor] = useState("#00e5b0");
 
-  // QUEST State
   const [questTotalTasks, setQuestTotalTasks] = useState("5");
   const [questTitle, setQuestTitle] = useState("");
   const [questDesc, setQuestDesc] = useState("");
   const [questXp, setQuestXp] = useState("5000");
   const [questSkillId, setQuestSkillId] = useState<string | null>(null);
 
-  // Data State (Loaded dynamically on mount)
   const [availableQuests, setAvailableQuests] = useState<any[]>([]);
 
   const THEME_COLORS = ["#00e5b0", "#f5d060", "#ff4444", "#bd70ff", "#4488ff"];
 
-  // Fetch active quests when the matrix opens so you can link tasks to them.
-  // ✅ FIX: This function must NEVER be called inside database.write().
-  // Querying the DB inside a write transaction can stall WatermelonDB's action
-  // queue, which would cause all subsequent writes (e.g. skill creation) to
-  // silently never execute.
+  // const loadMatrixData = async () => {
+  //   const allQuests = (await database.get("quests").query().fetch()) as Quest[];
+  //   const available = [];
+
+  //   for (const quest of allQuests) {
+  //     if (quest.status !== "active") continue;
+
+  //     const linkedTasks = (await database
+  //       .get("tasks")
+  //       .query(
+  //         Q.unsafeSqlQuery(
+  //           `SELECT * FROM tasks WHERE linked_quest_ids LIKE '%${quest.id}%'`,
+  //         ),
+  //       )
+  //       .fetch()) as Task[];
+
+  //     if (linkedTasks.length < quest.totalTasks) {
+  //       available.push(quest._raw);
+  //     }
+  //   }
+
+  //   setAvailableQuests(available);
+  // };
+
   const loadMatrixData = async () => {
     const allQuests = (await database.get("quests").query().fetch()) as Quest[];
     const available = [];
@@ -106,13 +118,12 @@ export default function CreationMatrix({
     for (const quest of allQuests) {
       if (quest.status !== "active") continue;
 
-      // Count linked tasks
+      // 🚀 THE FIX: Use the plural 'linked_quest_ids' and Q.like for substring matching
       const linkedTasks = (await database
         .get("tasks")
-        .query(Q.where("linked_quest_id", quest.id))
+        .query(Q.where("linked_quest_ids", Q.like(`%${quest.id}%`)))
         .fetch()) as Task[];
 
-      // Only include quests that can accept more tasks
       if (linkedTasks.length < quest.totalTasks) {
         available.push(quest._raw);
       }
@@ -128,7 +139,6 @@ export default function CreationMatrix({
   const handleSpawn = async () => {
     Keyboard.dismiss();
 
-    // ─── Track whether a task was created so we can reload quests after ───────
     let taskWasCreated = false;
 
     await database.write(async () => {
@@ -136,7 +146,6 @@ export default function CreationMatrix({
         if (!taskName.trim()) return;
 
         if (editingTask) {
-          // Update existing task
           const taskToUpdate = await database.get("tasks").find(editingTask.id);
           await taskToUpdate.update((task: any) => {
             task.name = taskName;
@@ -154,7 +163,6 @@ export default function CreationMatrix({
           });
           taskWasCreated = true;
         } else {
-          // Check if quests can accept more tasks
           for (const questId of taskQuestIds) {
             const quest = (await database.get("quests").find(questId)) as Quest;
             const linkedTasks = (await database
@@ -164,7 +172,7 @@ export default function CreationMatrix({
 
             if (linkedTasks.length >= quest.totalTasks) {
               console.log("Quest already has maximum tasks linked");
-              return; // Don't create the task
+              return;
             }
           }
 
@@ -182,23 +190,9 @@ export default function CreationMatrix({
             task.status = "pending";
             task.targetNeed = taskNeed;
             task.linkedQuestIds = taskQuestIds.join(",");
-            console.log("Creating task with quest links:", {
-              taskName,
-              taskQuestIds,
-              allFields: task,
-            });
           })) as Task;
 
-          console.log(
-            "Task created with ID:",
-            newTask.id,
-            "Quest IDs:",
-            newTask.linkedQuestIds,
-          );
-
           taskWasCreated = true;
-          // ✅ FIX: loadMatrixData() removed from here — it must not run inside
-          // a write transaction. It is called below, after the write completes.
         }
       } else if (activeTab === "skill") {
         if (!skillName.trim()) return;
@@ -224,18 +218,20 @@ export default function CreationMatrix({
       }
     });
 
-    // ─── All DB work is done. Now reload UI state. ────────────────────────────
+    try {
+      if (taskWasCreated) {
+        await loadMatrixData();
+      }
 
-    // ✅ FIX: Reload available quests AFTER the write, not inside it.
-    if (taskWasCreated) {
-      await loadMatrixData();
+      await onSpawn();
+    } catch (error) {
+      console.warn("CreationMatrix submission failed:", error);
+    } finally {
+      // 🚀 THE FIX: Delay state unmount to prevent UI thread lock on Samsung devices
+      setTimeout(() => {
+        onClose();
+      }, 100);
     }
-
-    // ✅ FIX: await onSpawn() so the parent (Dashboard) finishes re-fetching
-    // skills/tasks from the DB before we close the modal. Without this, the
-    // modal unmounts before setSkills() fires, and the new skill never appears.
-    await onSpawn();
-    onClose();
   };
 
   return (
@@ -253,7 +249,6 @@ export default function CreationMatrix({
         exiting={SlideOutDown}
         style={styles.sheet}
       >
-        {/* TOP TABS */}
         <View style={styles.tabContainer}>
           {["task", "skill", "quest"].map((tab) => (
             <TouchableOpacity
@@ -277,7 +272,6 @@ export default function CreationMatrix({
           style={styles.formContainer}
           showsVerticalScrollIndicator={false}
         >
-          {/* ================= TASK FORM ================= */}
           {activeTab === "task" && (
             <View>
               <TextInput
@@ -412,7 +406,6 @@ export default function CreationMatrix({
               </View>
             </View>
           )}
-          {/* ================= SKILL FORM ================= */}
           {activeTab === "skill" && (
             <View>
               <TextInput
@@ -450,7 +443,6 @@ export default function CreationMatrix({
               </View>
             </View>
           )}
-          {/* ================= QUEST FORM ================= */}
           {activeTab === "quest" && (
             <View>
               <TextInput
@@ -537,7 +529,7 @@ export default function CreationMatrix({
               INITIALIZE {activeTab.toUpperCase()}
             </Text>
           </TouchableOpacity>
-          <View style={{ height: 40 }} /> {/* Bottom Padding */}
+          <View style={{ height: 40 }} />
         </ScrollView>
       </Animated.View>
     </View>

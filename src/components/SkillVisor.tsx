@@ -47,32 +47,32 @@ export default function SkillVisor({
 
   const handleGenerate = async () => {
     setIsGenerating(true);
-    const generatedData = await generateSkillBlueprint(skill.name);
 
-    if (generatedData) {
+    try {
+      const generatedData = await generateSkillBlueprint(skill.name);
+      if (!generatedData) {
+        throw new Error("AI returned no blueprint data.");
+      }
+
       // Save it permanently to the skill in WatermelonDB
       await database.write(async () => {
         const skillRecord: any = await database.get("skills").find(skill.id);
-        // ✅ FIX: Use the model's decorated property name `aiBlueprint`, NOT
-        // the raw column name `ai_blueprint`. WatermelonDB update() callbacks
-        // receive a model instance — its setters are the camelCase names from
-        // @text/@field decorators. `s.ai_blueprint` creates an untracked plain
-        // JS property that WatermelonDB ignores; nothing ever reaches SQLite.
         await skillRecord.update((s: any) => {
-          s.aiBlueprint = JSON.stringify(generatedData); // ✅ camelCase property
+          s.aiBlueprint = JSON.stringify(generatedData);
         });
       });
       setBlueprint(generatedData);
-      // ✅ Pass the updated raw record back so SkillTree can sync activeSkill
+
       const refreshed: any = await database.get("skills").find(skill.id);
       onUpdate(refreshed._raw);
-    } else {
-      Alert.alert(
-        "Neural Link Failed",
-        "Could not generate blueprint. Check your API key and connection.",
-      );
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : JSON.stringify(error);
+      console.error("Neural link failed:", message, error);
+      Alert.alert("Neural Link Failed", message || "Unknown error occurred.");
+    } finally {
+      setIsGenerating(false);
     }
-    setIsGenerating(false);
   };
 
   const handleDeleteSkill = async () => {

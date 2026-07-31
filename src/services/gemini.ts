@@ -66,8 +66,93 @@ export const generateSkillBlueprint = async (skillName: string) => {
     console.log("EXODUS ENGINE: Blueprint acquired and verified.");
 
     return blueprint;
-  } catch (error) {
-    console.error("EXODUS ENGINE ERROR: Neural link failed.", error);
-    return null;
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : JSON.stringify(error);
+    console.error("EXODUS ENGINE ERROR: Neural link failed.", message, error);
+    throw new Error(
+      `Gemini error: ${message || "Unknown error from AI service."}`,
+    );
   }
 };
+
+// Add this to your existing src/services/gemini.ts
+
+interface CoachAnalyticsInput {
+  needs: {
+    restoration: number;
+    vitality: number;
+    connectivity: number;
+    stimulation: number;
+  };
+  activeSkills: Array<{ name: string; level: number; xp: number }>;
+  recentTasks: Array<{ name: string; status: string; task_type: string }>;
+  completionRate: number;
+  totalXpEarned: number;
+}
+
+export interface CoachResponse {
+  synergyName: string;
+  synergyDescription: string;
+  honestOpinion: string;
+  sixMonthSimulation: string;
+}
+
+export async function generateCoachFeedback(
+  analytics: CoachAnalyticsInput,
+): Promise<CoachResponse> {
+  // Pull your existing API key configuration or environment variables
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "Neural Link Offline: Gemini API Key missing from environment.",
+    );
+  }
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+  const systemInstructions = `
+    You are the Core Directive Engine of the Exodus OS—a rigorous, highly observant, and deeply insightful life coach modeled after ultimate personal discipline and strategic mastery. You treat the user's life data like a complex production system. 
+    
+    Analyze the raw metrics provided. Your feedback must be completely honest, unvarnished, and tactical. Strip away hollow platitudes. Focus intensely on raw trajectory, execution density, and resource depletion.
+
+    You must output a strictly structured JSON object containing exactly these four keys:
+    1. "synergyName": An RPG-style hybrid class name discovering cross-discipline connections from their active skills list (e.g., if they have "Coding" and "Chess", call them a "Neural Architect" or "Algorithmic Grandmaster").
+    2. "synergyDescription": A short breakdown explaining why these specific skills synthesize powerfully.
+    3. "honestOpinion": A sharp, direct assessment of their current completion rate, task balance, and neglected needs. Speak directly to their discipline and focus.
+    4. "sixMonthSimulation": A predictive simulation calculating precisely where they will stand in 6 months if they continue running on their current exact trajectory and completion rate.
+  `;
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: systemInstructions },
+            {
+              text: `Current System Analytics Data Matrix:\n${JSON.stringify(analytics, null, 2)}`,
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.7,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Neural Link Error: System returned status ${response.status}`,
+    );
+  }
+
+  const json = await response.json();
+  const rawText = json.candidates[0].content.parts[0].text;
+
+  return JSON.parse(rawText) as CoachResponse;
+}

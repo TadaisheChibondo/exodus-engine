@@ -19,6 +19,7 @@ import Completed from "./src/screens/Completed";
 import Dashboard from "./src/screens/Dashboard";
 import SkillTree from "./src/screens/SkillTree";
 import QuestLog from "./src/screens/QuestLog";
+import CoachTerminal from "./src/screens/CoachTerminal";
 
 const Tab = createBottomTabNavigator();
 
@@ -197,6 +198,19 @@ export default function App() {
               options={{
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="terminal-outline" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tab.Screen
+              name="Coach"
+              component={CoachTerminal}
+              options={{
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons
+                    name="chatbubbles-outline"
+                    size={size}
+                    color={color}
+                  />
                 ),
               }}
             />

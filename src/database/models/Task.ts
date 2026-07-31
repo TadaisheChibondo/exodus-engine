@@ -21,4 +21,7 @@ export default class Task extends Model {
 
   // The Phase C Quest Link
   @text("linked_quest_ids") linkedQuestIds?: string;
+
+  // 🚀 NEW: Drag-and-drop sorting order
+  @field("sort_order") sortOrder?: number;
 }

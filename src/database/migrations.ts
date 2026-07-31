@@ -6,6 +6,16 @@ import {
 
 export default schemaMigrations({
   migrations: [
+    // 🚀 NEW: Version 9 - Drag and Drop Sorting State
+    {
+      toVersion: 9,
+      steps: [
+        addColumns({
+          table: "tasks",
+          columns: [{ name: "sort_order", type: "number", isOptional: true }],
+        }),
+      ],
+    },
     {
       toVersion: 8,
       steps: [

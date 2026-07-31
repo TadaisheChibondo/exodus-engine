@@ -1,16 +1,12 @@
 import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-} from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import DraggableFlatList, {
+  RenderItemParams,
+} from "react-native-draggable-flatlist";
 import { database } from "../database";
 import { useEngineStore } from "../store/useEngineStore";
 import { Q } from "@nozbe/watermelondb";
-import Animated, { LinearTransition } from "react-native-reanimated";
 
 // Components
 import Plumbob from "../components/Plumbob";
@@ -24,21 +20,15 @@ type NeedKey = "restoration" | "vitality" | "connectivity" | "stimulation";
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
 
-  // 1. Volatile State (Zustand)
   const needs = useEngineStore((state) => state.needs);
   const plumbobStatus = useEngineStore((state) => state.getPlumbobStatus());
   const modifyNeed = useEngineStore((state) => state.modifyNeed);
 
-  // 2. Persistent State (WatermelonDB)
   const [skills, setSkills] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
-
-  // 3. UI State for the Modal
   const [isMatrixOpen, setIsMatrixOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<any>(null);
 
-  // 4. Load Data from Database
-  // ✅ Returns a Promise so CreationMatrix can await it before closing the modal.
   const loadData = async (): Promise<void> => {
     const skillsCollection = await database.get("skills").query().fetch();
     const pendingTasksCollection = await database
@@ -47,23 +37,37 @@ export default function Dashboard() {
       .fetch();
 
     setSkills(skillsCollection.map((s) => s._raw));
-    setTasks(pendingTasksCollection.map((t) => t._raw));
+
+    const sortedTasks = pendingTasksCollection
+      .map((t) => t._raw)
+      .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    setTasks(sortedTasks);
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  // 5. Handle Task Actions (with RPG Math)
+  const handleDragEnd = async ({ data: newData }: { data: any[] }) => {
+    setTasks(newData);
+
+    await database.write(async () => {
+      const updates = [];
+      for (let i = 0; i < newData.length; i++) {
+        const taskRecord: any = await database.get("tasks").find(newData[i].id);
+        updates.push(
+          taskRecord.prepareUpdate((t: any) => {
+            t.sortOrder = i;
+          }),
+        );
+      }
+      await database.batch(...updates);
+    });
+  };
+
   const handleTaskComplete = async (taskId: string) => {
-    // ─── STEP 1: Read ALL fields BEFORE any write ─────────────────────────────
-    // Critical rule: never access model fields after calling .update().
-    // WatermelonDB marks the record dirty and field reads become unreliable.
     const taskRecord: any = await database.get("tasks").find(taskId);
-
-    // Debug: Log the raw data to see what fields exist
-    console.log("Task Record Raw:", taskRecord._raw);
-
     const taskXp: number = taskRecord.xp;
     const targetNeed: string = taskRecord.targetNeed || "restoration";
     const linkedIds: string[] = taskRecord.linkedIds
@@ -74,30 +78,15 @@ export default function Dashboard() {
       : [];
     const needBoost = Math.max(1, Math.floor(taskXp / 10));
 
-    console.log(
-      "Completing task:",
-      taskRecord.name,
-      "linked to quests:",
-      linkedQuestIds,
-      "| raw linked_quest_ids:",
-      taskRecord._raw.linked_quest_ids,
-    );
-
-    // ─── STEP 2: Single DB write transaction ──────────────────────────────────
     await database.write(async () => {
-      // 2a. Mark task as completed
       await taskRecord.update((task: any) => {
         task.status = "completed";
         task.completedAt = new Date().toISOString();
       });
 
-      // 2b. Quest Progression — for each linked quest
       for (const questId of linkedQuestIds) {
-        console.log("Updating quest:", questId);
         try {
           const questRecord: any = await database.get("quests").find(questId);
-
-          // Read quest fields BEFORE updating (same principle)
           const questLinkedSkillId: string | undefined =
             questRecord.linkedSkillId || questRecord.linked_skill_id;
           const totalTasks: number =
@@ -109,87 +98,57 @@ export default function Dashboard() {
             questRecord.completedTasks || questRecord.completed_tasks || 0;
           const newCompleted = currentCompleted + 1;
 
-          // Increment counter and auto-complete if all tasks done
           await questRecord.update((q: any) => {
             q.completedTasks = newCompleted;
-            if (newCompleted >= totalTasks) {
-              q.status = "completed";
-            }
+            if (newCompleted >= totalTasks) q.status = "completed";
           });
-          console.log(
-            "Quest updated: completed_tasks =",
-            newCompleted,
-            "total =",
-            totalTasks,
-          );
 
-          // Award proportional XP into the quest's linked skill
           if (questLinkedSkillId && proportionalXp > 0) {
             try {
               const questSkill: any = await database
                 .get("skills")
                 .find(questLinkedSkillId);
-
               await questSkill.update((skill: any) => {
                 let currentXp = skill.xp + proportionalXp;
                 let currentLevel = skill.level;
                 let currentMaxXp = skill.max_xp;
-
                 while (currentXp >= currentMaxXp) {
                   currentXp -= currentMaxXp;
                   currentLevel += 1;
                   currentMaxXp = Math.floor(currentMaxXp * 1.2);
                 }
-
                 skill.xp = currentXp;
                 skill.level = currentLevel;
                 skill.max_xp = currentMaxXp;
               });
-            } catch {
-              console.log("Quest skill not found, skipping XP cascade.");
-            }
+            } catch {}
           }
-        } catch (error) {
-          console.log(
-            "Quest record not found, skipping quest progression.",
-            error,
-          );
-        }
+        } catch (error) {}
       }
 
-      // 2c. Standard Task → Skill Progression (for each linked skill)
       for (const skillId of linkedIds) {
         if (skillId && skillId !== "general") {
           try {
             const taskSkill: any = await database.get("skills").find(skillId);
-
             await taskSkill.update((skill: any) => {
               let currentXp = skill.xp + taskXp;
               let currentLevel = skill.level;
               let currentMaxXp = skill.max_xp;
-
               while (currentXp >= currentMaxXp) {
                 currentXp -= currentMaxXp;
                 currentLevel += 1;
                 currentMaxXp = Math.floor(currentMaxXp * 1.2);
               }
-
               skill.xp = currentXp;
               skill.level = currentLevel;
               skill.max_xp = currentMaxXp;
             });
-          } catch {
-            console.log("Task skill not found, skipping standard progression.");
-          }
+          } catch {}
         }
       }
     });
 
-    // ─── STEP 3: Zustand update AFTER DB write completes ─────────────────────
-    // modifyNeed is a React state setter — calling it inside database.write()
-    // triggers a re-render mid-transaction which can cause subtle race conditions.
     modifyNeed(targetNeed as NeedKey, needBoost);
-
     loadData();
   };
 
@@ -200,22 +159,30 @@ export default function Dashboard() {
         task.status = "canceled";
       });
     });
-
-    // Penalty after write, same pattern
     modifyNeed("vitality", -10);
-
     loadData();
   };
 
-  // 6. Handle Task Edit
   const handleTaskEdit = (task: any) => {
     setEditingTask(task);
     setIsMatrixOpen(true);
   };
 
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<any>) => {
+    return (
+      <TaskCard
+        task={item}
+        onComplete={handleTaskComplete}
+        onCancel={handleTaskCancel}
+        onEdit={handleTaskEdit}
+        drag={drag}
+        isActive={isActive}
+      />
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* HEADER: Plumbob & Needs */}
       <View style={styles.header}>
         <View style={styles.plumbobWrapper}>
           <Plumbob status={plumbobStatus} />
@@ -244,49 +211,48 @@ export default function Dashboard() {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={{ paddingBottom: 30 }}
-      >
-        {/* SKILLS RING SECTION */}
-        <Text style={styles.sectionTitle}>ACTIVE SKILLS</Text>
-        <View style={styles.skillsGrid}>
-          {skills.length > 0 ? (
-            skills.map((skill) => (
-              <View key={skill.id} style={styles.skillItem}>
-                <SkillRing skill={skill} size={70} strokeWidth={6} />
-                <Text style={styles.skillName}>{skill.name}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyText}>
-              No skills loaded yet. Time to grind.
-            </Text>
-          )}
-        </View>
+      <DraggableFlatList
+        data={tasks}
+        onDragEnd={handleDragEnd}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        // 🚀 THE FIX: Bumped to 180 to clear the custom Tab Bar + FAB height
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: insets.bottom + 180 }, // <--- CHANGE 120 TO 180 HERE
+        ]}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <View>
+            <Text style={styles.sectionTitle}>ACTIVE SKILLS</Text>
+            <View style={styles.skillsGrid}>
+              {skills.length > 0 ? (
+                skills.map((skill) => (
+                  <View key={skill.id} style={styles.skillItem}>
+                    <SkillRing skill={skill} size={70} strokeWidth={6} />
+                    <Text style={styles.skillName}>{skill.name}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>
+                  No skills loaded yet. Time to grind.
+                </Text>
+              )}
+            </View>
 
-        {/* ACTION QUEUE */}
-        <Text style={styles.sectionTitle}>ACTION QUEUE</Text>
-        <Animated.View layout={LinearTransition} style={styles.queueContainer}>
-          {tasks.length > 0 ? (
-            tasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                onComplete={handleTaskComplete}
-                onCancel={handleTaskCancel}
-                onEdit={handleTaskEdit}
-              />
-            ))
-          ) : (
-            <Text style={styles.emptyText}>
-              Queue is empty. You are at peace.
+            <Text style={styles.sectionTitle}>
+              ACTION QUEUE {tasks.length > 0 ? `(${tasks.length})` : ""}
             </Text>
-          )}
-        </Animated.View>
-      </ScrollView>
 
-      {/* THE FAB */}
+            {tasks.length === 0 && (
+              <Text style={styles.emptyText}>
+                Queue is empty. You are at peace.
+              </Text>
+            )}
+          </View>
+        }
+      />
+
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 20 }]}
         onPress={() => setIsMatrixOpen(true)}
@@ -294,7 +260,6 @@ export default function Dashboard() {
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
 
-      {/* THE CREATION MATRIX MODAL */}
       {isMatrixOpen && (
         <CreationMatrix
           skills={skills}
@@ -322,7 +287,7 @@ const styles = StyleSheet.create({
   },
   plumbobWrapper: { justifyContent: "center", marginRight: 20 },
   needsMatrix: { flex: 1, gap: 8 },
-  content: { flex: 1, padding: 20 },
+  listContent: { padding: 20 }, // Base padding handled in component inline style now
   sectionTitle: {
     color: "rgba(255,255,255,0.4)",
     fontSize: 11,
@@ -344,10 +309,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 8,
     textAlign: "center",
-  },
-  queueContainer: {
-    gap: 12,
-    paddingBottom: 20,
   },
   emptyText: {
     color: "rgba(255,255,255,0.3)",

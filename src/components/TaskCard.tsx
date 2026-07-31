@@ -1,17 +1,6 @@
 import React from "react";
-import { View, Text, StyleSheet, Dimensions } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  runOnJS,
-  LinearTransition, // 🚀 NEW: The Layout Physics Engine
-} from "react-native-reanimated";
-
-const SCREEN_WIDTH = Dimensions.get("window").width;
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25; // Swipe 25% of the screen to trigger
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import Animated, { LinearTransition } from "react-native-reanimated";
 
 interface TaskCardProps {
   task: {
@@ -25,6 +14,8 @@ interface TaskCardProps {
   onComplete: (id: string) => void;
   onCancel: (id: string) => void;
   onEdit: (task: any) => void;
+  drag?: () => void; // 🚀 Passed down from DraggableFlatList
+  isActive?: boolean; // 🚀 Tells us if the card is currently being held
 }
 
 export default function TaskCard({
@@ -32,67 +23,33 @@ export default function TaskCard({
   onComplete,
   onCancel,
   onEdit,
+  drag,
+  isActive,
 }: TaskCardProps) {
-  const translateX = useSharedValue(0);
-  const opacity = useSharedValue(1);
-
-  // 🚀 THE FIX: Extract the primitive string so Reanimated doesn't capture the live DB object
-  const taskId = task.id;
-
-  // The Gesture Engine
-  const pan = Gesture.Pan()
-    .onUpdate((event) => {
-      // Move the card with the finger
-      translateX.value = event.translationX;
-    })
-    .onEnd((event) => {
-      if (event.translationX > SWIPE_THRESHOLD) {
-        // Swiped Right -> Complete
-        translateX.value = withTiming(SCREEN_WIDTH, { duration: 250 });
-        opacity.value = withTiming(0, { duration: 250 }, () => {
-          runOnJS(onComplete)(taskId); // 👈 Use the primitive string here
-        });
-      } else if (event.translationX < -SWIPE_THRESHOLD) {
-        // Swiped Left -> Cancel/Penalty
-        translateX.value = withTiming(-SCREEN_WIDTH, { duration: 250 });
-        opacity.value = withTiming(0, { duration: 250 }, () => {
-          runOnJS(onCancel)(taskId); // 👈 And use the primitive string here
-        });
-      } else {
-        // Didn't swipe far enough -> Snap back to center
-        translateX.value = withSpring(0, { damping: 20, stiffness: 90 });
-      }
-    });
-
-  const longPress = Gesture.LongPress()
-    .minDuration(500)
-    .onStart(() => {
-      runOnJS(onEdit)(task);
-    });
-
-  const combinedGesture = Gesture.Race(pan, longPress);
-
-  // Apply the animation to the styles
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-    opacity: opacity.value,
-  }));
-
   return (
     <Animated.View
       layout={LinearTransition.springify().damping(18).stiffness(150)}
-      style={{ width: "100%" }}
     >
-      <GestureDetector gesture={combinedGesture}>
-        <Animated.View
-          style={[styles.card, { borderLeftColor: task.color }, animatedStyle]}
+      <View
+        style={[
+          styles.card,
+          { borderLeftColor: task.color },
+          isActive && styles.activeCard, // Elevate when dragging
+        ]}
+      >
+        {/* LEFT SIDE: Info & Drag Area */}
+        <TouchableOpacity
+          style={styles.infoArea}
+          onLongPress={drag} // 🚀 Hold to drag
+          onPress={() => onEdit(task)} // 🚀 Tap to edit
+          delayLongPress={150}
+          disabled={isActive}
+          activeOpacity={0.7}
         >
           {task.is_urgent && <Text style={styles.urgentBadge}>⚠ URGENT</Text>}
-
           <Text style={styles.name} numberOfLines={2}>
             {task.name}
           </Text>
-
           <View style={styles.metaRow}>
             <Text style={[styles.xp, { color: task.color }]}>
               +{task.xp} XP
@@ -101,22 +58,74 @@ export default function TaskCard({
               <Text style={styles.time}>◷ {task.scheduled_time}</Text>
             )}
           </View>
-        </Animated.View>
-      </GestureDetector>
+        </TouchableOpacity>
+
+        {/* RIGHT SIDE: Action Buttons */}
+        <View style={styles.actionArea}>
+          <TouchableOpacity
+            style={[styles.button, styles.completeButton]}
+            onPress={() => onComplete(task.id)}
+          >
+            <Text style={styles.buttonText}>✓</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.deleteButton]}
+            onPress={() => onCancel(task.id)}
+          >
+            <Text style={styles.buttonText}>X</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    width: "100%", // 🚀 FIXED: No more tiny 160px width
+    width: "100%",
+    flexDirection: "row", // Align left info and right buttons horizontally
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     borderLeftWidth: 4,
     borderRadius: 8,
-    padding: 16, // Slightly more padding for the new full-width look
-    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  activeCard: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "#bd70ff",
+    transform: [{ scale: 1.02 }],
+    elevation: 5,
+  },
+  infoArea: {
+    flex: 1,
+    padding: 16,
+    justifyContent: "center",
+  },
+  actionArea: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 16,
+    gap: 8,
+  },
+  button: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  completeButton: {
+    backgroundColor: "rgba(0, 229, 176, 0.1)", // engineGreen
+  },
+  deleteButton: {
+    backgroundColor: "rgba(255, 69, 58, 0.1)", // danger red
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#dde3f0",
   },
   urgentBadge: {
     fontSize: 9,

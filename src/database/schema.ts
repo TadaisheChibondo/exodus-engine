@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from "@nozbe/watermelondb";
 
 export default appSchema({
-  version: 8,
+  version: 9, // 🚀 BUMPED TO V9
   tables: [
     tableSchema({
       name: "skills",
@@ -38,6 +38,8 @@ export default appSchema({
         { name: "completed_at", type: "string", isOptional: true },
         { name: "target_need", type: "string", isOptional: true },
         { name: "linked_quest_ids", type: "string", isOptional: true },
+        // 🚀 NEW: Drag-and-drop sorting physics
+        { name: "sort_order", type: "number", isOptional: true },
       ],
     }),
     tableSchema({
@@ -48,7 +50,6 @@ export default appSchema({
         { name: "xp_reward", type: "number" },
         { name: "status", type: "string" },
         { name: "linked_skill_id", type: "string", isOptional: true },
-        // 👇 ADD THESE TWO NEW COLUMNS
         { name: "total_tasks", type: "number", isOptional: true },
         { name: "completed_tasks", type: "number", isOptional: true },
       ],
