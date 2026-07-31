@@ -10,12 +10,13 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { database } from "../database";
+import QuestRoadmapModal from "../components/QuestRoadmapModal"; // 🚀 NEW IMPORT
 
 export default function QuestLog() {
   const insets = useSafeAreaInsets();
   const [quests, setQuests] = useState<any[]>([]);
+  const [selectedQuest, setSelectedQuest] = useState<any>(null); // 🚀 NEW STATE
 
-  // 1. Fetch Quests (Tasks are no longer needed here! Massive memory save.)
   const loadData = async () => {
     const questCollection = await database.get("quests").query().fetch();
     setQuests(
@@ -31,7 +32,6 @@ export default function QuestLog() {
     }, []),
   );
 
-  // 2. Handle Quest Deletion
   const handleDelete = (questId: string) => {
     Alert.alert(
       "ABORT QUEST",
@@ -53,17 +53,15 @@ export default function QuestLog() {
     );
   };
 
-  // 3. Handle Manual Quest Completion (Override)
   const handleComplete = async (questRaw: any) => {
     await database.write(async () => {
       const questToUpdate: any = await database.get("quests").find(questRaw.id);
 
       await questToUpdate.update((q: any) => {
         q.status = "completed";
-        q.completedTasks = q.totalTasks; // Sync the bar to 100%
+        q.completedTasks = q.totalTasks;
       });
 
-      // Award remaining massive XP bounty if manually forced
       if (questRaw.linked_skill_id) {
         try {
           const skillToUpdate: any = await database
@@ -106,7 +104,6 @@ export default function QuestLog() {
       >
         {quests.length > 0 ? (
           quests.map((quest) => {
-            // THE NEW PROGRESS BAR LOGIC (Reading directly from the DB columns)
             const totalTasks = quest.total_tasks || 1;
             const completedTasks = quest.completed_tasks || 0;
             const progressPct = Math.min(
@@ -123,48 +120,58 @@ export default function QuestLog() {
                   isCompleted && { borderLeftColor: "#00e5b0", opacity: 0.6 },
                 ]}
               >
-                <View style={styles.cardHeader}>
-                  <Text
-                    style={[
-                      styles.questTitle,
-                      isCompleted && {
-                        textDecorationLine: "line-through",
-                        color: "rgba(255,255,255,0.4)",
-                      },
-                    ]}
-                  >
-                    {quest.title}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.xpBadge,
-                      isCompleted && {
-                        backgroundColor: "rgba(0,229,176,0.1)",
-                        color: "#00e5b0",
-                      },
-                    ]}
-                  >
-                    +{quest.xp_reward} XP
-                  </Text>
-                </View>
-
-                {quest.description ? (
-                  <Text style={styles.description}>{quest.description}</Text>
-                ) : null}
-
-                {/* THE PROGRESS BAR */}
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressHeader}>
-                    <Text style={styles.progressLabel}>SUB-ROUTINES</Text>
-                    <Text style={styles.progressText}>
-                      {completedTasks} / {totalTasks}
+                {/* 🚀 THE FIX: Wrap the main body in a TouchableOpacity to trigger the Modal */}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setSelectedQuest(quest)}
+                >
+                  <View style={styles.cardHeader}>
+                    <Text
+                      style={[
+                        styles.questTitle,
+                        isCompleted && {
+                          textDecorationLine: "line-through",
+                          color: "rgba(255,255,255,0.4)",
+                        },
+                      ]}
+                    >
+                      {quest.title}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.xpBadge,
+                        isCompleted && {
+                          backgroundColor: "rgba(0,229,176,0.1)",
+                          color: "#00e5b0",
+                        },
+                      ]}
+                    >
+                      +{quest.xp_reward} XP
                     </Text>
                   </View>
-                  <View style={styles.track}>
-                    <View style={[styles.fill, { width: `${progressPct}%` }]} />
-                  </View>
-                </View>
 
+                  {quest.description ? (
+                    <Text style={styles.description}>{quest.description}</Text>
+                  ) : null}
+
+                  <View style={styles.progressContainer}>
+                    <View style={styles.progressHeader}>
+                      <Text style={styles.progressLabel}>
+                        SUB-ROUTINES (TAP TO VIEW)
+                      </Text>
+                      <Text style={styles.progressText}>
+                        {completedTasks} / {totalTasks}
+                      </Text>
+                    </View>
+                    <View style={styles.track}>
+                      <View
+                        style={[styles.fill, { width: `${progressPct}%` }]}
+                      />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Footer stays outside the touchable so buttons still work */}
                 <View style={styles.footer}>
                   <TouchableOpacity onPress={() => handleDelete(quest.id)}>
                     <Text style={styles.deleteText}>DELETE</Text>
@@ -195,6 +202,17 @@ export default function QuestLog() {
           </Text>
         )}
       </ScrollView>
+
+      {/* 🚀 THE MODAL INJECTION */}
+      {selectedQuest && (
+        <QuestRoadmapModal
+          quest={selectedQuest}
+          onClose={() => {
+            setSelectedQuest(null);
+            loadData(); // Refresh the list just in case tasks were updated
+          }}
+        />
+      )}
     </View>
   );
 }

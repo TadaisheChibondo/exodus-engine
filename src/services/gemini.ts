@@ -10,22 +10,22 @@ if (!apiKey) {
 // Initialize the Google AI client
 const genAI = new GoogleGenerativeAI(apiKey || "");
 
+// ============================================================================
+// 1. SKILL BLUEPRINT GENERATOR
+// ============================================================================
 export const generateSkillBlueprint = async (skillName: string) => {
   try {
     console.log(
       `EXODUS ENGINE: Initiating neural link for skill blueprint: [${skillName}]...`,
     );
 
-    // We use gemini-2.5-flash because it is lightning fast and perfect for structured data
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       generationConfig: {
-        // 🚀 THE MAGIC: This forces the AI to output pure, parseable JSON
         responseMimeType: "application/json",
       },
     });
 
-    // 2. The Strict System Prompt
     const prompt = `
       You are an expert game designer and life-coach AI running inside the 'Exodus Engine'.
       Your objective is to generate a comprehensive, 10-level progression blueprint for a user trying to master the following skill: "${skillName}".
@@ -57,14 +57,11 @@ export const generateSkillBlueprint = async (skillName: string) => {
       }
     `;
 
-    // 3. Execute the payload
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
-
-    // 4. Parse and return the structured data
     const blueprint = JSON.parse(responseText);
-    console.log("EXODUS ENGINE: Blueprint acquired and verified.");
 
+    console.log("EXODUS ENGINE: Blueprint acquired and verified.");
     return blueprint;
   } catch (error: unknown) {
     const message =
@@ -76,8 +73,9 @@ export const generateSkillBlueprint = async (skillName: string) => {
   }
 };
 
-// Add this to your existing src/services/gemini.ts
-
+// ============================================================================
+// 2. COACH ANALYTICS GENERATOR
+// ============================================================================
 interface CoachAnalyticsInput {
   needs: {
     restoration: number;
@@ -101,15 +99,6 @@ export interface CoachResponse {
 export async function generateCoachFeedback(
   analytics: CoachAnalyticsInput,
 ): Promise<CoachResponse> {
-  // Pull your existing API key configuration or environment variables
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error(
-      "Neural Link Offline: Gemini API Key missing from environment.",
-    );
-  }
-
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const systemInstructions = `
@@ -156,3 +145,77 @@ export async function generateCoachFeedback(
 
   return JSON.parse(rawText) as CoachResponse;
 }
+
+// ============================================================================
+// 3. 🚀 NEW: QUEST ROADMAP GENERATOR
+// ============================================================================
+export interface QuestRoadmapResponse {
+  quest_title: string;
+  tasks: Array<{
+    name: string;
+    xp: number;
+    target_need: "restoration" | "vitality" | "connectivity" | "stimulation";
+    is_urgent: boolean;
+  }>;
+}
+
+export const generateQuestRoadmap = async (
+  questTitle: string,
+  questDescription: string = "",
+): Promise<QuestRoadmapResponse> => {
+  try {
+    console.log(
+      `EXODUS ENGINE: Initiating neural link for quest roadmap: [${questTitle}]...`,
+    );
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.4, // Lowered temperature to keep tasks logical and sequential
+      },
+    });
+
+    const prompt = `
+      You are an elite project manager and tactical AI running inside the 'Exodus Engine'.
+      Your objective is to break down a user's macro-objective (Quest) into a highly actionable, sequential roadmap of subtasks.
+
+      Quest Title: "${questTitle}"
+      Quest Description: "${questDescription}"
+
+      Rules:
+      1. Generate 5 to 10 sequential, highly specific, and actionable tasks required to complete this quest.
+      2. Assign an XP bounty to each task (e.g., 50 to 500 XP based on effort and difficulty).
+      3. Assign a 'target_need' to each task. This must be exactly one of the following strings: "stimulation", "vitality", "connectivity", or "restoration".
+      4. Decide if a task should be flagged as 'is_urgent' (boolean). Set to true only if it's a critical blocking step or time-sensitive.
+      5. Return ONLY valid JSON matching this exact structure:
+
+      {
+        "quest_title": "${questTitle}",
+        "tasks": [
+          {
+            "name": "Specific actionable task",
+            "xp": 150,
+            "target_need": "stimulation",
+            "is_urgent": false
+          }
+        ]
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const roadmap = JSON.parse(responseText);
+
+    console.log("EXODUS ENGINE: Quest Roadmap acquired.");
+    return roadmap as QuestRoadmapResponse;
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : JSON.stringify(error);
+    console.error(
+      "EXODUS ENGINE ERROR: Quest roadmap generation failed.",
+      message,
+    );
+    throw new Error(`Gemini error: ${message}`);
+  }
+};
